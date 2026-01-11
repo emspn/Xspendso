@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "106558578912",
+    "project_id": "xspendso",
+    "storage_bucket": "xspendso.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:106558578912:android:6fa2d1953da091f0433085",
+        "android_client_info": {
+          "package_name": "com.app.xspendso"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "106558578912-f9gm5vcqc9qebr19bmgqm86l3l4i4j7a.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAOoX1S2oeamyKaRtDQQwzHr8VRpBZUS4Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "106558578912-f9gm5vcqc9qebr19bmgqm86l3l4i4j7a.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
