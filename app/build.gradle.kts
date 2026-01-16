@@ -39,6 +39,12 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/DEPENDENCIES"
+        }
+    }
 }
 
 dependencies {
@@ -63,6 +69,18 @@ dependencies {
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth.ktx)
+    
+    // Google Auth
+    implementation(libs.play.services.auth)
+
+    // Gson for Converters
+    implementation("com.google.code.gson:gson:2.10.1")
+
+    // Work Manager
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // Biometric
+    implementation(libs.androidx.biometric)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

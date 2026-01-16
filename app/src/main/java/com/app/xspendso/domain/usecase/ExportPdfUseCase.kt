@@ -21,7 +21,8 @@ class ExportPdfUseCase(private val context: Context) {
         y += 40f
 
         transactions.forEach {
-            canvas.drawText("${it.merchant}: ₹${it.amount} (${it.category})", 40f, y, paint)
+            val text = "${it.counterparty} (${it.accountSource}): ₹${Math.abs(it.amount)} [${it.category}]"
+            canvas.drawText(text, 40f, y, paint)
             y += 20f
             if (y > 800) return@forEach // Basic pagination limit
         }

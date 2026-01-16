@@ -1,19 +1,14 @@
 package com.app.xspendso.domain.usecase
 
 import com.app.xspendso.data.TransactionEntity
-import java.util.*
+import kotlin.math.abs
 
 class GetMonthlyAnalyticsUseCase {
     operator fun invoke(transactions: List<TransactionEntity>): Map<String, Double> {
-        val currentMonth = Calendar.getInstance().get(Calendar.MONTH)
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
-
+        // Transactions are already filtered by time in the ViewModel
         return transactions
-            .filter { 
-                val cal = Calendar.getInstance().apply { timeInMillis = it.timestamp }
-                cal.get(Calendar.MONTH) == currentMonth && cal.get(Calendar.YEAR) == currentYear
-            }
+            .filter { it.type == "DEBIT" }
             .groupBy { it.category }
-            .mapValues { entry -> entry.value.sumOf { Math.abs(it.amount) } }
+            .mapValues { entry -> entry.value.sumOf { abs(it.amount) } }
     }
 }

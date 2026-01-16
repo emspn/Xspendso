@@ -1,0 +1,175 @@
+package com.app.xspendso.ui.dashboard
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.app.xspendso.ui.theme.AppSurface
+import com.app.xspendso.ui.theme.AppBackground
+import com.app.xspendso.ui.theme.TextPrimary
+import com.app.xspendso.ui.theme.TextSecondary
+import java.text.NumberFormat
+
+@Composable
+fun DashboardHeader(
+    searchQuery: String,
+    totalSpent: Double,
+    isSyncing: Boolean,
+    timeFilter: TimeFilter,
+    currencyFormatter: NumberFormat,
+    onSearchChange: (String) -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    val periodLabel = when(timeFilter) {
+        TimeFilter.TODAY -> "Today"
+        TimeFilter.THIS_WEEK -> "Weekly"
+        TimeFilter.THIS_MONTH -> "Monthly"
+        TimeFilter.THIS_YEAR -> "This Year"
+        TimeFilter.CUSTOM -> "Custom Range"
+        TimeFilter.ALL_TIME -> "All Time"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AppBackground)
+            .statusBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Xpendso",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary,
+                    letterSpacing = (-0.5).sp
+                )
+                Text(
+                    text = "Personal Finance Ledger",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(AppSurface, CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = TextPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onSearchChange,
+            placeholder = {
+                Text(
+                    "Search transactions...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary.copy(alpha = 0.6f)
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = AppSurface,
+                unfocusedContainerColor = AppSurface,
+                focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f),
+                focusedTextColor = TextPrimary,
+                unfocusedTextColor = TextPrimary,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Search,
+                    contentDescription = null,
+                    tint = TextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
+            },
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Surface(
+            color = AppSurface,
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "TOTAL SPENT",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = periodLabel,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                
+                Text(
+                    text = currencyFormatter.format(totalSpent),
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+
+                if (isSyncing) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 12.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = AppSurface
+                    )
+                }
+            }
+        }
+    }
+}

@@ -41,10 +41,24 @@ fun ConsentScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Xpendso needs to read your SMS messages to automatically track and categorize your spending. This data is processed locally on your device and never uploaded to our servers.",
+            text = "Xpendso aggregates your financial data locally to give you a unified view of your spending. To do this, we need your permission to:",
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                BulletPoint("Read transaction SMS from your banks.")
+                BulletPoint("Identify spending patterns from your text messages.")
+                BulletPoint("Process all data locally on this device.")
+                BulletPoint("Never upload your messages to any server.")
+            }
+        }
         
         Spacer(modifier = Modifier.height(32.dp))
         
@@ -54,5 +68,13 @@ fun ConsentScreen(
         ) {
             Text("I Understand & Agree")
         }
+    }
+}
+
+@Composable
+fun BulletPoint(text: String) {
+    Row(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text("• ", fontWeight = FontWeight.Bold)
+        Text(text = text, style = MaterialTheme.typography.bodyMedium)
     }
 }
