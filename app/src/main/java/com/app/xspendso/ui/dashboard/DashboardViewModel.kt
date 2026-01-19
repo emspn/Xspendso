@@ -4,15 +4,17 @@ import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.app.xspendso.data.*
 import com.app.xspendso.domain.TransactionRepository
 import com.app.xspendso.domain.usecase.*
+import com.app.xspendso.ui.people.PeopleViewModel
+import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.Calendar
+import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.round
 
@@ -20,7 +22,8 @@ enum class TimeFilter {
     TODAY, THIS_WEEK, THIS_MONTH, THIS_YEAR, CUSTOM, ALL_TIME
 }
 
-class DashboardViewModel(
+@HiltViewModel
+class DashboardViewModel @Inject constructor(
     private val repository: TransactionRepository,
     private val syncLedgerUseCase: SyncLedgerUseCase,
     private val getMonthlyAnalyticsUseCase: GetMonthlyAnalyticsUseCase,
@@ -30,7 +33,9 @@ class DashboardViewModel(
     private val getMerchantAnalyticsUseCase: GetMerchantAnalyticsUseCase,
     private val getBalanceHistoryUseCase: GetBalanceHistoryUseCase,
     private val getMonthOverMonthComparisonUseCase: GetMonthOverMonthComparisonUseCase,
-    private val getAccountBreakdownUseCase: GetAccountBreakdownUseCase
+    private val getAccountBreakdownUseCase: GetAccountBreakdownUseCase,
+    private val getSpendingTrendsUseCase: GetSpendingTrendsUseCase,
+    private val getSpendingByDayOfWeekUseCase: GetSpendingByDayOfWeekUseCase
 ) : ViewModel() {
 
     private val _searchQuery = MutableStateFlow("")
@@ -144,6 +149,14 @@ class DashboardViewModel(
         initialValue = 0.0
     )
 
+    val totalReceived: StateFlow<Double> = transactions.map { txs ->
+        txs.filter { it.type == "CREDIT" }.sumOf { abs(it.amount) }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = 0.0
+    )
+
     private val currentMonthYear: String
         get() {
             val cal = Calendar.getInstance()
@@ -189,6 +202,14 @@ class DashboardViewModel(
 
     val accountBreakdown: StateFlow<List<AccountBreakdown>> = transactions.map {
         getAccountBreakdownUseCase(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val spendingTrends: StateFlow<List<DailyTrend>> = transactions.map {
+        getSpendingTrendsUseCase(it)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dayOfWeekSpend: StateFlow<List<DayOfWeekSpend>> = transactions.map {
+        getSpendingByDayOfWeekUseCase(it)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun onSearchQueryChange(newQuery: String) {
@@ -271,6 +292,28 @@ class DashboardViewModel(
             )
             repository.insertTransaction(transaction)
             _showManualPaymentSheet.value = false
+        }
+    }
+
+    fun splitExpenseWithContact(transaction: TransactionEntity, contact: ContactLedger, peopleViewModel: PeopleViewModel) {
+        viewModelScope.launch {
+            // Calculate 50% split (standard)
+            val splitAmount = abs(transaction.amount) / 2.0
+            
+            // Add to People Ledger as a Receivable (LENT)
+            peopleViewModel.addTransaction(
+                contactId = contact.contactId,
+                amount = splitAmount,
+                type = LoanType.LENT,
+                remark = "Split: ${transaction.counterparty}",
+                date = transaction.timestamp
+            )
+            
+            // Update original transaction remark to show it was split
+            val updatedTx = transaction.copy(
+                remark = (transaction.remark?.let { "$it | " } ?: "") + "Split with ${contact.name}"
+            )
+            repository.updateTransaction(updatedTx)
         }
     }
 
@@ -385,34 +428,5 @@ class DashboardViewModel(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         context.startActivity(Intent.createChooser(intent, "Share Report"))
-    }
-
-    class Factory(
-        private val repository: TransactionRepository,
-        private val syncLedgerUseCase: SyncLedgerUseCase,
-        private val getMonthlyAnalyticsUseCase: GetMonthlyAnalyticsUseCase,
-        private val getBudgetingStatusUseCase: GetBudgetingStatusUseCase,
-        private val predictMonthEndSavingsUseCase: PredictMonthEndSavingsUseCase,
-        private val exportReportUseCase: ExportReportUseCase,
-        private val getMerchantAnalyticsUseCase: GetMerchantAnalyticsUseCase,
-        private val getBalanceHistoryUseCase: GetBalanceHistoryUseCase,
-        private val getMonthOverMonthComparisonUseCase: GetMonthOverMonthComparisonUseCase,
-        private val getAccountBreakdownUseCase: GetAccountBreakdownUseCase
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return DashboardViewModel(
-                repository, 
-                syncLedgerUseCase, 
-                getMonthlyAnalyticsUseCase,
-                getBudgetingStatusUseCase,
-                predictMonthEndSavingsUseCase,
-                exportReportUseCase,
-                getMerchantAnalyticsUseCase,
-                getBalanceHistoryUseCase,
-                getMonthOverMonthComparisonUseCase,
-                getAccountBreakdownUseCase
-            ) as T
-        }
     }
 }

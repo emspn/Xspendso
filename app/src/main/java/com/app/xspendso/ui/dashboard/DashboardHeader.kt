@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -20,16 +19,43 @@ import com.app.xspendso.ui.theme.AppSurface
 import com.app.xspendso.ui.theme.AppBackground
 import com.app.xspendso.ui.theme.TextPrimary
 import com.app.xspendso.ui.theme.TextSecondary
+import com.app.xspendso.ui.theme.SecondaryEmerald
 import java.text.NumberFormat
 
 @Composable
 fun DashboardHeader(
     searchQuery: String,
     totalSpent: Double,
+    totalReceived: Double,
     isSyncing: Boolean,
     timeFilter: TimeFilter,
     currencyFormatter: NumberFormat,
     onSearchChange: (String) -> Unit,
+    onSettingsClick: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().background(AppBackground)) {
+        DashboardSummarySection(
+            totalSpent = totalSpent,
+            totalReceived = totalReceived,
+            isSyncing = isSyncing,
+            timeFilter = timeFilter,
+            currencyFormatter = currencyFormatter,
+            onSettingsClick = onSettingsClick
+        )
+        DashboardSearchSection(
+            searchQuery = searchQuery,
+            onSearchChange = onSearchChange
+        )
+    }
+}
+
+@Composable
+fun DashboardSummarySection(
+    totalSpent: Double,
+    totalReceived: Double,
+    isSyncing: Boolean,
+    timeFilter: TimeFilter,
+    currencyFormatter: NumberFormat,
     onSettingsClick: () -> Unit
 ) {
     val periodLabel = when(timeFilter) {
@@ -44,8 +70,6 @@ fun DashboardHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(AppBackground)
-            .statusBarsPadding()
             .padding(horizontal = 20.dp, vertical = 16.dp)
     ) {
         Row(
@@ -68,6 +92,7 @@ fun DashboardHeader(
                     fontWeight = FontWeight.Medium
                 )
             }
+            
             IconButton(
                 onClick = onSettingsClick,
                 modifier = Modifier
@@ -85,6 +110,84 @@ fun DashboardHeader(
 
         Spacer(modifier = Modifier.height(20.dp))
 
+        Surface(
+            color = AppSurface,
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "BALANCE SUMMARY",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = TextSecondary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = periodLabel,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Spent", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Text(
+                            text = currencyFormatter.format(totalSpent),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = TextPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                        Text("Received", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Text(
+                            text = currencyFormatter.format(totalReceived),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = SecondaryEmerald,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                if (isSyncing) {
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 16.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = AppSurface
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DashboardSearchSection(
+    searchQuery: String,
+    onSearchChange: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 8.dp)
+    ) {
         OutlinedTextField(
             value = searchQuery,
             onValueChange = onSearchChange,
@@ -118,58 +221,5 @@ fun DashboardHeader(
             },
             singleLine = true
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Surface(
-            color = AppSurface,
-            shape = RoundedCornerShape(16.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "TOTAL SPENT",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = TextSecondary,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
-                    Surface(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = periodLabel,
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-                
-                Text(
-                    text = currencyFormatter.format(totalSpent),
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = TextPrimary,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-
-                if (isSyncing) {
-                    LinearProgressIndicator(
-                        modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 12.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = AppSurface
-                    )
-                }
-            }
-        }
     }
 }

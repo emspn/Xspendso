@@ -5,6 +5,7 @@ import com.app.xspendso.domain.TransactionRepository
 import com.app.xspendso.sms.SmsReader
 import com.app.xspendso.sms.TransactionMergeEngine
 import kotlinx.coroutines.flow.first
+import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.round
 
@@ -13,7 +14,7 @@ data class SyncResult(
     val totalSpent: Double
 )
 
-class SyncLedgerUseCase(
+class SyncLedgerUseCase @Inject constructor(
     private val smsReader: SmsReader,
     private val repository: TransactionRepository,
     private val detectRecurringTransactionsUseCase: DetectRecurringTransactionsUseCase,

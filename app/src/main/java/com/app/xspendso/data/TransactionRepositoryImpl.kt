@@ -2,8 +2,11 @@ package com.app.xspendso.data
 
 import com.app.xspendso.domain.TransactionRepository
 import kotlinx.coroutines.flow.Flow
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class TransactionRepositoryImpl(
+@Singleton
+class TransactionRepositoryImpl @Inject constructor(
     private val transactionDao: TransactionDao,
     private val patternDao: CorrectionDao,
     private val budgetDao: BudgetDao,

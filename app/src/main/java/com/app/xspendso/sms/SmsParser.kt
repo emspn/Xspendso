@@ -14,7 +14,14 @@ object SmsParser {
         "discount", "survey", "available", "valid until", "chance to", "rewards"
     )
     
-    private val BANK_KEYWORDS = listOf("CBOI", "SBI", "HDFC", "ICICI", "AXIS", "PNB", "BOB", "CANARA", "UNIONB", "IDBI", "KOTAK", "YESB", "POSTAL", "PAYTM", "GPAY", "BANK", "FIPL", "IPB")
+    private val BANK_KEYWORDS = listOf(
+        "ACB", "ALB", "ANB", "APN", "AXB", "BOB", "BOI", "BOM", "BMB", "CNB", 
+        "CBOI", "CRB", "DCB", "DNB", "FBL", "GSC", "HCB", "HDF", "ICI", "IDB", 
+        "INB", "IOB", "IIB", "ING", "JSB", "KTB", "KVB", "KMB", "MUC", "NTB", 
+        "NGB", "OBC", "PMC", "PSB", "PNB", "RBL", "SRC", "SBJ", "SBH", "SBI", 
+        "SBM", "SBP", "SBT", "SYB", "TMB", "SIB", "UCO", "UOB", "UBI", "VJB", 
+        "YBL", "HDFC", "AXIS", "KOTAK", "PAYTM", "GPAY", "BANK", "FIPL", "IPB", "ICICI"
+    )
 
     fun parse(body: String, sender: String, date: Long): TransactionEntity? {
         val lowerBody = body.lowercase().replace("\n", " ").trim()

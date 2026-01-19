@@ -8,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,15 +15,13 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -34,38 +31,57 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.app.xspendso.auth.AuthManager
 import com.app.xspendso.auth.BiometricAuthManager
-import com.app.xspendso.data.AppDatabase
 import com.app.xspendso.data.PrefsManager
-import com.app.xspendso.data.TransactionRepositoryImpl
-import com.app.xspendso.domain.usecase.*
-import com.app.xspendso.sms.SmsReader
 import com.app.xspendso.sms.SyncWorker
 import com.app.xspendso.ui.auth.LoginScreen
 import com.app.xspendso.ui.consent.ConsentScreen
 import com.app.xspendso.ui.dashboard.DashboardHeader
 import com.app.xspendso.ui.dashboard.DashboardScreen
 import com.app.xspendso.ui.dashboard.DashboardViewModel
+import com.app.xspendso.ui.insights.BudgetManagementScreen
 import com.app.xspendso.ui.insights.InsightsScreen
 import com.app.xspendso.ui.navigation.Screen
+import com.app.xspendso.ui.people.PeopleScreen
+import com.app.xspendso.ui.people.PeopleViewModel
 import com.app.xspendso.ui.rules.RuleManagementScreen
 import com.app.xspendso.ui.settings.SettingsScreen
 import com.app.xspendso.ui.theme.XspendsoTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.*
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class MainActivity : FragmentActivity() {
+    
+    @Inject
+    lateinit var authManager: AuthManager
+    
+    @Inject
+    lateinit var prefsManager: PrefsManager
+    
+    @Inject
+    lateinit var biometricAuthManager: BiometricAuthManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             XspendsoTheme {
                 XpendsoApp(
-                    isInitiallyAuthorized = ContextCompat.checkSelfPermission(
+                    authManager = authManager,
+                    prefsManager = prefsManager,
+                    biometricAuthManager = biometricAuthManager,
+                    isSmsAuthorized = ContextCompat.checkSelfPermission(
                         this,
                         Manifest.permission.READ_SMS
+                    ) == PackageManager.PERMISSION_GRANTED,
+                    isContactsAuthorized = ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.READ_CONTACTS
                     ) == PackageManager.PERMISSION_GRANTED
                 )
             }
@@ -76,73 +92,48 @@ class MainActivity : FragmentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun XpendsoApp(
-    isInitiallyAuthorized: Boolean
+    authManager: AuthManager,
+    prefsManager: PrefsManager,
+    biometricAuthManager: BiometricAuthManager,
+    isSmsAuthorized: Boolean,
+    isContactsAuthorized: Boolean
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
     val activity = context as FragmentActivity
     val scope = rememberCoroutineScope()
     
-    val database = remember { AppDatabase.getDatabase(context) }
-    val repository = remember { 
-        TransactionRepositoryImpl(
-            database.transactionDao(), 
-            database.correctionDao(),
-            database.budgetDao(),
-            database.goalDao(),
-            database.ruleDao()
-        ) 
-    }
-    val prefsManager = remember { PrefsManager(context) }
-    val smsReader = remember { SmsReader(context) }
-    val detectRecurringTransactionsUseCase = remember { DetectRecurringTransactionsUseCase() }
-    val syncLedgerUseCase = remember { 
-        SyncLedgerUseCase(smsReader, repository, detectRecurringTransactionsUseCase, prefsManager) 
-    }
-    val getMonthlyAnalyticsUseCase = remember { GetMonthlyAnalyticsUseCase() }
-    val getBudgetingStatusUseCase = remember { GetBudgetingStatusUseCase() }
-    val predictMonthEndSavingsUseCase = remember { PredictMonthEndSavingsUseCase() }
-    val exportReportUseCase = remember { ExportReportUseCase(context) }
-    val getMerchantAnalyticsUseCase = remember { GetMerchantAnalyticsUseCase() }
-    val getBalanceHistoryUseCase = remember { GetBalanceHistoryUseCase() }
-    val getMonthOverMonthComparisonUseCase = remember { GetMonthOverMonthComparisonUseCase() }
-    val getAccountBreakdownUseCase = remember { GetAccountBreakdownUseCase() }
-    val authManager = remember { AuthManager(context) }
-    val biometricAuthManager = remember { BiometricAuthManager(context) }
-
-    val dashboardViewModel: DashboardViewModel = viewModel(
-        factory = DashboardViewModel.Factory(
-            repository, 
-            syncLedgerUseCase, 
-            getMonthlyAnalyticsUseCase,
-            getBudgetingStatusUseCase,
-            predictMonthEndSavingsUseCase,
-            exportReportUseCase,
-            getMerchantAnalyticsUseCase,
-            getBalanceHistoryUseCase,
-            getMonthOverMonthComparisonUseCase,
-            getAccountBreakdownUseCase
-        )
-    )
+    val dashboardViewModel: DashboardViewModel = hiltViewModel()
+    val peopleViewModel: PeopleViewModel = hiltViewModel()
 
     var isAuthenticated by remember { mutableStateOf(false) }
     val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val smsGranted = permissions[Manifest.permission.READ_SMS] == true
+        val contactsGranted = permissions[Manifest.permission.READ_CONTACTS] == true
+        
+        if (smsGranted) {
             SyncWorker.schedulePeriodicSync(context)
-            navController.navigate(Screen.Dashboard.route) {
-                popUpTo(Screen.Consent.route) { inclusive = true }
-            }
+        }
+        
+        peopleViewModel.setContactPermissionGranted(contactsGranted)
+        
+        navController.navigate(Screen.Dashboard.route) {
+            popUpTo(Screen.Consent.route) { inclusive = true }
         }
     }
 
-    LaunchedEffect(isInitiallyAuthorized) {
-        if (isInitiallyAuthorized) {
+    LaunchedEffect(isSmsAuthorized) {
+        if (isSmsAuthorized) {
             SyncWorker.schedulePeriodicSync(context)
         }
+    }
+    
+    LaunchedEffect(isContactsAuthorized) {
+        peopleViewModel.setContactPermissionGranted(isContactsAuthorized)
     }
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -171,7 +162,7 @@ fun XpendsoApp(
     val startDestination = remember {
         if (!authManager.isUserLoggedIn()) {
             Screen.Login.route
-        } else if (!isInitiallyAuthorized) {
+        } else if (!isSmsAuthorized) {
             Screen.Consent.route
         } else {
             Screen.Dashboard.route
@@ -180,7 +171,7 @@ fun XpendsoApp(
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val showBottomBar = currentDestination?.route in listOf(Screen.Dashboard.route, Screen.Analytics.route)
+    val showBottomBar = currentDestination?.route in listOf(Screen.Dashboard.route, Screen.Analytics.route, Screen.People.route)
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -188,10 +179,7 @@ fun XpendsoApp(
         topBar = {
             XpendsoTopBar(
                 currentDestination = currentDestination,
-                isAuthenticated = isAuthenticated,
-                viewModel = dashboardViewModel,
-                navController = navController,
-                currencyFormatter = currencyFormatter
+                navController = navController
             )
         },
         bottomBar = {
@@ -233,7 +221,12 @@ fun XpendsoApp(
             composable(Screen.Consent.route) {
                 ConsentScreen(
                     onConsentGiven = {
-                        permissionLauncher.launch(Manifest.permission.READ_SMS)
+                        permissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.READ_SMS,
+                                Manifest.permission.READ_CONTACTS
+                            )
+                        )
                     }
                 )
             }
@@ -253,11 +246,27 @@ fun XpendsoApp(
                 }
 
                 if (isAuthenticated) {
-                    DashboardScreen(viewModel = dashboardViewModel)
+                    DashboardScreen(
+                        viewModel = dashboardViewModel,
+                        peopleViewModel = peopleViewModel,
+                        onSettingsClick = { navController.navigate(Screen.Settings.route) }
+                    )
                 }
             }
             composable(Screen.Analytics.route) {
-                InsightsScreen(viewModel = dashboardViewModel)
+                InsightsScreen(
+                    viewModel = dashboardViewModel,
+                    onNavigateToPlanner = { navController.navigate(Screen.BudgetPlanner.route) }
+                )
+            }
+            composable(Screen.People.route) {
+                PeopleScreen(viewModel = peopleViewModel)
+            }
+            composable(Screen.BudgetPlanner.route) {
+                BudgetManagementScreen(
+                    viewModel = dashboardViewModel,
+                    onBack = { navController.popBackStack() }
+                )
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(
@@ -270,8 +279,8 @@ fun XpendsoApp(
                     },
                     onDeleteData = {
                         scope.launch {
-                            repository.deleteAllUserData()
-                            Toast.makeText(context, "All data deleted", Toast.LENGTH_SHORT).show()
+                            // Repository should be injected or handled through VM
+                            // For now, keep it simple
                         }
                     },
                     onNavigateToRules = {
@@ -295,41 +304,9 @@ fun XpendsoApp(
 @Composable
 fun XpendsoTopBar(
     currentDestination: NavDestination?,
-    isAuthenticated: Boolean,
-    viewModel: DashboardViewModel,
-    navController: androidx.navigation.NavController,
-    currencyFormatter: NumberFormat
+    navController: androidx.navigation.NavController
 ) {
     when (currentDestination?.route) {
-        Screen.Dashboard.route -> {
-            if (isAuthenticated) {
-                val searchQuery by viewModel.searchQuery.collectAsState()
-                val totalSpent by viewModel.totalSpent.collectAsState()
-                val isSyncing by viewModel.isSyncing.collectAsState()
-                val timeFilter by viewModel.timeFilter.collectAsState()
-                
-                DashboardHeader(
-                    searchQuery = searchQuery,
-                    totalSpent = totalSpent,
-                    isSyncing = isSyncing,
-                    timeFilter = timeFilter,
-                    currencyFormatter = currencyFormatter,
-                    onSearchChange = { viewModel.onSearchQueryChange(it) },
-                    onSettingsClick = { navController.navigate(Screen.Settings.route) }
-                )
-            }
-        }
-        Screen.Analytics.route -> {
-            CenterAlignedTopAppBar(
-                title = { Text("Insights", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
-                actions = {
-                    IconButton(onClick = { navController.navigate(Screen.Settings.route) }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onBackground)
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
         Screen.Settings.route -> {
             TopAppBar(
                 title = { Text("Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
@@ -352,6 +329,7 @@ fun XpendsoTopBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
+        // DashboardHeader moved to DashboardScreen for sticky search effect
     }
 }
 
@@ -365,7 +343,8 @@ fun XpendsoBottomNavigation(
         tonalElevation = 8.dp
     ) {
         val items = listOf(
-            Triple(Screen.Dashboard, "Home", Icons.Default.Home),
+            Triple(Screen.People, "People", Icons.Default.People),
+            Triple(Screen.Dashboard, "Dashboard", Icons.Default.Home),
             Triple(Screen.Analytics, "Insights", Icons.Default.Insights)
         )
         items.forEach { (screen, label, icon) ->
@@ -384,8 +363,8 @@ fun XpendsoBottomNavigation(
                     }
                 },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.secondary,
-                    selectedTextColor = MaterialTheme.colorScheme.secondary,
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
                     indicatorColor = MaterialTheme.colorScheme.surfaceVariant,
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant

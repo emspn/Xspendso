@@ -25,8 +25,11 @@ fun SettingsScreen(
 ) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showReparseDialog by remember { mutableStateOf(false) }
+    var showUpiDialog by remember { mutableStateOf(false) }
     var biometricEnabled by remember { mutableStateOf(prefsManager.isBiometricEnabled) }
     var syncFrequency by remember { mutableFloatStateOf(prefsManager.syncFrequencyHours.toFloat()) }
+    var userUpi by remember { mutableStateOf(prefsManager.userUpiId ?: "") }
+    var userName by remember { mutableStateOf(prefsManager.userName ?: "") }
 
     if (showDeleteDialog) {
         AlertDialog(
@@ -69,6 +72,47 @@ fun SettingsScreen(
         )
     }
 
+    if (showUpiDialog) {
+        AlertDialog(
+            onDismissRequest = { showUpiDialog = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            title = { Text("My Payment Details", color = MaterialTheme.colorScheme.onSurface) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("These details will be used to generate repayment links for others to pay you.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedTextField(
+                        value = userName,
+                        onValueChange = { userName = it },
+                        label = { Text("Display Name") },
+                        placeholder = { Text("Your full name") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = userUpi,
+                        onValueChange = { userUpi = it },
+                        label = { Text("My UPI ID") },
+                        placeholder = { Text("username@upi") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        prefsManager.userName = userName
+                        prefsManager.userUpiId = userUpi
+                        showUpiDialog = false
+                    }
+                ) {
+                    Text("Save Details")
+                }
+            },
+            dismissButton = { TextButton(onClick = { showUpiDialog = false }) { Text("Cancel") } }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -94,6 +138,27 @@ fun SettingsScreen(
                         prefsManager.isBiometricEnabled = it
                     }
                 )
+            }
+        }
+
+        // Payments Section
+        SettingsSection(title = "Payments") {
+            Surface(
+                onClick = { showUpiDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.Transparent
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("My Payment Profile", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text(if (userUpi.isBlank()) "Setup UPI to request money" else userUpi, style = MaterialTheme.typography.bodySmall, color = if (userUpi.isBlank()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Default.QrCode, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
 

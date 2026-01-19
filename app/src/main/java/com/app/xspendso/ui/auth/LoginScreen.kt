@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.xspendso.R
+import com.app.xspendso.ui.theme.TextPrimary
 
 @Composable
 fun LoginScreen(
@@ -36,8 +37,8 @@ fun LoginScreen(
                 .fillMaxWidth()
                 .height(56.dp),
             shape = RoundedCornerShape(12.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray)
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.Gray.copy(alpha = 0.5f))
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -53,7 +54,7 @@ fun LoginScreen(
                     text = "Sign in with Google", 
                     fontSize = 16.sp, 
                     fontWeight = FontWeight.Medium,
-                    color = Color(0xFF1F1F1F)
+                    color = Color.White
                 )
             }
         }

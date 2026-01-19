@@ -14,9 +14,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         CorrectionPattern::class, 
         BudgetEntity::class, 
         GoalEntity::class,
-        CategorizationRule::class
+        CategorizationRule::class,
+        ContactLedger::class,
+        LoanTransaction::class
     ], 
-    version = 7, 
+    version = 8, 
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -26,22 +28,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun goalDao(): GoalDao
     abstract fun ruleDao(): CategorizationRuleDao
+    abstract fun peopleDao(): PeopleDao
 
     companion object {
         @Volatile
         private var INSTANCE: AppDatabase? = null
-
-        private val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS categorization_rules (
-                        merchantPattern TEXT NOT NULL, 
-                        category TEXT NOT NULL, 
-                        PRIMARY KEY(merchantPattern)
-                    )
-                """)
-            }
-        }
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
@@ -50,7 +41,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "xspendso_database"
                 )
-                .addMigrations(MIGRATION_6_7)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

@@ -54,9 +54,9 @@ fun ConsentScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 BulletPoint("Read transaction SMS from your banks.")
-                BulletPoint("Identify spending patterns from your text messages.")
+                BulletPoint("Access contacts to track lend/borrow with people.")
                 BulletPoint("Process all data locally on this device.")
-                BulletPoint("Never upload your messages to any server.")
+                BulletPoint("Never upload your messages or contacts to any server.")
             }
         }
         

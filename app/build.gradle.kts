@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -81,6 +82,21 @@ dependencies {
 
     // Biometric
     implementation(libs.androidx.biometric)
+
+    // Coil for Images
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // ML Kit for QR Scanning
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+
+    // Hilt
+    implementation(libs.hilt.android)
+    ksp(libs.hilt.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+    
+    // Hilt WorkManager
+    implementation("androidx.hilt:hilt-work:1.2.0")
+    ksp("androidx.hilt:hilt-compiler:1.2.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
