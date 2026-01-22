@@ -1,8 +1,11 @@
 package com.app.xspendso.domain.usecase
 
 import com.app.xspendso.data.TransactionEntity
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class CategorizeTransactionUseCase {
+@Singleton
+class CategorizeTransactionUseCase @Inject constructor() {
     
     private val categories = mapOf(
         "Food & Dining" to listOf(
@@ -39,8 +42,7 @@ class CategorizeTransactionUseCase {
         val counterparty = transaction.counterparty.lowercase()
         val remark = (transaction.remark ?: "").lowercase()
 
-        // 0. Refund Check (Keep category but mark as refund in UI usually, 
-        // but here we check if it's a known merchant first)
+        // 0. Merchant Keyword Check
         for ((category, keywords) in categories) {
             if (keywords.any { counterparty.contains(it) || remark.contains(it) }) {
                 return category
@@ -55,6 +57,6 @@ class CategorizeTransactionUseCase {
         
         if (transaction.method == "ATM") return "Cash Withdrawal"
 
-        return "Others"
+        return "General"
     }
 }

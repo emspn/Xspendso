@@ -20,7 +20,9 @@ class PredictMonthEndSavingsUseCase {
         val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
         val currentMonth = calendar.get(Calendar.MONTH)
         val currentYear = calendar.get(Calendar.YEAR)
-        val remainingDays = (daysInMonth - currentDay).coerceAtLeast(0)
+        
+        // Correct remaining days including today
+        val remainingDays = (daysInMonth - currentDay + 1).coerceAtLeast(1)
 
         val currentMonthTransactions = transactions.filter {
             val cal = Calendar.getInstance().apply { timeInMillis = it.timestamp }
@@ -32,7 +34,6 @@ class PredictMonthEndSavingsUseCase {
         if (totalLimit <= 0) return SavingsPrediction(currentMonthSpent, 0.0, 0.0, "UNKNOWN", 0.0, remainingDays)
 
         // Calculate Average Burn Rate
-        // Logic: Total spent divided by days passed. Min 1 day to avoid division by zero.
         val daysPassed = if (currentDay > 0) currentDay else 1
         val averageDailySpend = currentMonthSpent / daysPassed
         
@@ -40,9 +41,9 @@ class PredictMonthEndSavingsUseCase {
         val predictedSpent = averageDailySpend * daysInMonth
         val predictedSavings = totalLimit - predictedSpent
 
-        // Dynamic Daily Allowance: How much can I spend PER DAY for the remaining days?
+        // Dynamic Daily Allowance: Remaining budget / Remaining days (including today)
         val remainingBudget = (totalLimit - currentMonthSpent).coerceAtLeast(0.0)
-        val dailyBudget = if (remainingDays > 0) remainingBudget / remainingDays else remainingBudget
+        val dailyBudget = remainingBudget / remainingDays
 
         val status = when {
             predictedSpent > totalLimit -> "OVER_BUDGET"

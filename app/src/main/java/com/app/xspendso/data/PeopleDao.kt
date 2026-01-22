@@ -9,8 +9,14 @@ interface PeopleDao {
     @Query("SELECT * FROM contacts_ledger ORDER BY lastUpdated DESC")
     fun getAllContacts(): Flow<List<ContactLedger>>
 
+    @Query("SELECT * FROM contacts_ledger")
+    suspend fun getAllContactsList(): List<ContactLedger>
+
     @Query("SELECT * FROM contacts_ledger WHERE contactId = :contactId")
     suspend fun getContactById(contactId: Long): ContactLedger?
+
+    @Query("SELECT * FROM contacts_ledger WHERE uuid = :uuid")
+    suspend fun getContactByUuid(uuid: String): ContactLedger?
 
     @Query("SELECT * FROM contacts_ledger WHERE phone = :phone LIMIT 1")
     suspend fun getContactByPhone(phone: String): ContactLedger?
@@ -28,8 +34,20 @@ interface PeopleDao {
     @Query("SELECT * FROM loan_transactions WHERE contactId = :contactId ORDER BY date DESC")
     fun getTransactionsByContactId(contactId: Long): Flow<List<LoanTransaction>>
 
+    @Query("SELECT * FROM loan_transactions")
+    suspend fun getAllLoanTransactionsList(): List<LoanTransaction>
+
     @Query("SELECT * FROM loan_transactions WHERE id = :transactionId")
     suspend fun getTransactionById(transactionId: Long): LoanTransaction?
+
+    @Query("SELECT * FROM loan_transactions WHERE uuid = :uuid")
+    suspend fun getTransactionByUuid(uuid: String): LoanTransaction?
+
+    @Query("SELECT * FROM loan_transactions WHERE sourceTransactionId = :sourceId")
+    suspend fun getTransactionsBySourceId(sourceId: Long): List<LoanTransaction>
+
+    @Query("DELETE FROM loan_transactions WHERE sourceTransactionId = :sourceId")
+    suspend fun deleteTransactionsBySourceId(sourceId: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLoanTransaction(transaction: LoanTransaction): Long
@@ -45,13 +63,22 @@ interface PeopleDao {
 
     @Transaction
     suspend fun addLoanTransactionAndUpdateBalance(transaction: LoanTransaction) {
-        insertLoanTransaction(transaction)
+        val contact = getContactById(transaction.contactId)
+        val contactUuid = contact?.uuid ?: ""
+        insertLoanTransaction(transaction.copy(contactUuid = contactUuid, lastUpdated = System.currentTimeMillis()))
         recalculateContactBalance(transaction.contactId)
     }
 
     @Transaction
+    suspend fun deleteSourceSplitAndUpdateBalances(sourceId: Long) {
+        val affectedContacts = getTransactionsBySourceId(sourceId).map { it.contactId }.distinct()
+        deleteTransactionsBySourceId(sourceId)
+        affectedContacts.forEach { recalculateContactBalance(it) }
+    }
+
+    @Transaction
     suspend fun updateLoanTransactionAndUpdateBalance(transaction: LoanTransaction) {
-        updateLoanTransaction(transaction)
+        updateLoanTransaction(transaction.copy(lastUpdated = System.currentTimeMillis()))
         recalculateContactBalance(transaction.contactId)
     }
 
@@ -71,7 +98,7 @@ interface PeopleDao {
     @Transaction
     suspend fun toggleTransactionSettlement(transactionId: Long) {
         val transaction = getTransactionById(transactionId) ?: return
-        val updatedTx = transaction.copy(isSettled = !transaction.isSettled)
+        val updatedTx = transaction.copy(isSettled = !transaction.isSettled, lastUpdated = System.currentTimeMillis())
         updateLoanTransaction(updatedTx)
         recalculateContactBalance(transaction.contactId)
     }
@@ -86,7 +113,6 @@ interface PeopleDao {
         
         txs.forEach { tx ->
             val remainingAmount = tx.amount - tx.partialSettledAmount
-            // We only count unsettled parts toward the net balance
             if (!tx.isSettled && remainingAmount > 0) {
                 if (tx.type == LoanType.LENT) {
                     totalLent += remainingAmount
@@ -111,18 +137,19 @@ interface PeopleDao {
 
     @Transaction
     suspend fun settleLoanTransaction(contactId: Long, amountToSettle: Double, typeToSettle: LoanType) {
-        // Record the settlement itself as a transaction in history
+        val contact = getContactById(contactId) ?: return
         val settlementTx = LoanTransaction(
             contactId = contactId,
+            contactUuid = contact.uuid,
             amount = amountToSettle,
-            type = if (typeToSettle == LoanType.LENT) LoanType.BORROWED else LoanType.LENT, // Reciprocal type
+            type = if (typeToSettle == LoanType.LENT) LoanType.BORROWED else LoanType.LENT,
             date = System.currentTimeMillis(),
             remark = "Settlement Payment",
-            isSettled = true // Settlement transactions are born settled
+            isSettled = true,
+            lastUpdated = System.currentTimeMillis()
         )
         insertLoanTransaction(settlementTx)
 
-        // Now partially/fully settle existing debts of the requested type
         val txs = getAllTransactionsForContactInternal(contactId)
             .filter { it.type == typeToSettle && !it.isSettled }
         
@@ -133,16 +160,16 @@ interface PeopleDao {
             
             val txRemaining = tx.amount - tx.partialSettledAmount
             if (txRemaining <= remainingSettleAmount) {
-                // Fully settle this transaction
                 updateLoanTransaction(tx.copy(
                     partialSettledAmount = tx.amount,
-                    isSettled = true
+                    isSettled = true,
+                    lastUpdated = System.currentTimeMillis()
                 ))
                 remainingSettleAmount -= txRemaining
             } else {
-                // Partially settle this transaction
                 updateLoanTransaction(tx.copy(
-                    partialSettledAmount = tx.partialSettledAmount + remainingSettleAmount
+                    partialSettledAmount = tx.partialSettledAmount + remainingSettleAmount,
+                    lastUpdated = System.currentTimeMillis()
                 ))
                 remainingSettleAmount = 0.0
             }

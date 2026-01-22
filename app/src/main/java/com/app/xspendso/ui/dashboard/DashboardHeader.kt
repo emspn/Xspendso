@@ -5,8 +5,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,7 +31,7 @@ fun DashboardHeader(
     timeFilter: TimeFilter,
     currencyFormatter: NumberFormat,
     onSearchChange: (String) -> Unit,
-    onSettingsClick: () -> Unit
+    onProfileClick: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().background(AppBackground)) {
         DashboardSummarySection(
@@ -40,7 +40,7 @@ fun DashboardHeader(
             isSyncing = isSyncing,
             timeFilter = timeFilter,
             currencyFormatter = currencyFormatter,
-            onSettingsClick = onSettingsClick
+            onProfileClick = onProfileClick
         )
         DashboardSearchSection(
             searchQuery = searchQuery,
@@ -56,7 +56,7 @@ fun DashboardSummarySection(
     isSyncing: Boolean,
     timeFilter: TimeFilter,
     currencyFormatter: NumberFormat,
-    onSettingsClick: () -> Unit
+    onProfileClick: () -> Unit
 ) {
     val periodLabel = when(timeFilter) {
         TimeFilter.TODAY -> "Today"
@@ -70,7 +70,7 @@ fun DashboardSummarySection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp)
+            .padding(start = 20.dp, end = 20.dp, top = 0.dp, bottom = 12.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -92,23 +92,23 @@ fun DashboardSummarySection(
                     fontWeight = FontWeight.Medium
                 )
             }
-            
+
             IconButton(
-                onClick = onSettingsClick,
+                onClick = onProfileClick,
                 modifier = Modifier
                     .size(40.dp)
                     .background(AppSurface, CircleShape)
             ) {
                 Icon(
-                    Icons.Default.Settings,
-                    contentDescription = "Settings",
-                    tint = TextPrimary,
-                    modifier = Modifier.size(20.dp)
+                    Icons.Default.AccountCircle,
+                    contentDescription = "Profile",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Surface(
             color = AppSurface,

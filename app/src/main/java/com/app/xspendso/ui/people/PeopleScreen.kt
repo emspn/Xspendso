@@ -2,12 +2,12 @@ package com.app.xspendso.ui.people
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,6 +40,7 @@ import coil.compose.AsyncImage
 import com.app.xspendso.data.ContactLedger
 import com.app.xspendso.data.LoanTransaction
 import com.app.xspendso.data.LoanType
+import com.app.xspendso.domain.SyncStatus
 import com.app.xspendso.sms.PhoneContact
 import com.app.xspendso.ui.theme.*
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -52,7 +53,8 @@ import kotlin.math.abs
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PeopleScreen(
-    viewModel: PeopleViewModel
+    viewModel: PeopleViewModel,
+    onProfileClick: () -> Unit
 ) {
     val context = LocalContext.current
     val contacts by viewModel.allContacts.collectAsState()
@@ -60,6 +62,7 @@ fun PeopleScreen(
     val totalToPay by viewModel.totalToPay.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sortOrder by viewModel.sortOrder.collectAsState()
+    val syncStatus by viewModel.syncStatus.collectAsState()
     val hasContactPermission by viewModel.contactPermissionGranted.collectAsState()
     val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
 
@@ -131,7 +134,10 @@ fun PeopleScreen(
         PeopleHeader(
             totalToReceive = totalToReceive,
             totalToPay = totalToPay,
-            currencyFormatter = currencyFormatter
+            syncStatus = syncStatus,
+            currencyFormatter = currencyFormatter,
+            onProfileClick = onProfileClick,
+            onSyncClick = { viewModel.syncWithCloud() }
         )
 
         Column(modifier = Modifier.padding(horizontal = 20.dp)) {
@@ -232,11 +238,49 @@ fun PeopleScreen(
 fun PeopleHeader(
     totalToReceive: Double,
     totalToPay: Double,
-    currencyFormatter: NumberFormat
+    syncStatus: SyncStatus,
+    currencyFormatter: NumberFormat,
+    onProfileClick: () -> Unit,
+    onSyncClick: () -> Unit
 ) {
-    Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp).statusBarsPadding()) {
-        Text("People Ledger", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-        Spacer(modifier = Modifier.height(24.dp))
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 20.dp, end = 20.dp, top = 0.dp, bottom = 16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "People Ledger",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimary
+                )
+                SyncStatusIndicator(syncStatus, onSyncClick)
+            }
+            
+            IconButton(
+                onClick = onProfileClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(AppSurface, CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.AccountCircle,
+                    contentDescription = "Profile",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(20.dp))
+        
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             SummaryCard(
                 title = "Total Receivable",
@@ -251,6 +295,34 @@ fun PeopleHeader(
                 modifier = Modifier.weight(1f)
             )
         }
+    }
+}
+
+@Composable
+fun SyncStatusIndicator(status: SyncStatus, onSyncClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clickable { if (status != SyncStatus.SYNCING) onSyncClick() }
+    ) {
+        val (text, icon, color) = when (status) {
+            SyncStatus.IDLE -> Triple("Cloud Sync", Icons.Default.CloudQueue, TextSecondary)
+            SyncStatus.SYNCING -> Triple("Syncing...", Icons.Default.Sync, PrimarySteelBlue)
+            SyncStatus.SUCCESS -> Triple("Synced", Icons.Default.CloudDone, SecondaryEmerald)
+            SyncStatus.ERROR -> Triple("Sync Error", Icons.Default.CloudOff, ColorError)
+        }
+        
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = color
+        )
     }
 }
 
@@ -409,16 +481,29 @@ fun PeopleItem(contact: ContactLedger, onClick: () -> Unit, onUpiClick: () -> Un
                 }
                 
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (abs(contact.netBalance) > 0.01 && contact.netBalance < 0) {
-                        Button(
-                            onClick = { onUpiClick() },
-                            colors = ButtonDefaults.buttonColors(containerColor = ColorError.copy(alpha = 0.15f)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.height(36.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, ColorError)
-                        ) {
-                            Text("Pay", fontSize = 12.sp, color = ColorError, fontWeight = FontWeight.Bold)
+                    if (abs(contact.netBalance) > 0.01) {
+                        if (contact.netBalance < 0) {
+                            Button(
+                                onClick = { onUpiClick() },
+                                colors = ButtonDefaults.buttonColors(containerColor = ColorError.copy(alpha = 0.15f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, ColorError)
+                            ) {
+                                Text("Pay", fontSize = 12.sp, color = ColorError, fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            Button(
+                                onClick = { onUpiClick() },
+                                colors = ButtonDefaults.buttonColors(containerColor = SecondaryEmerald.copy(alpha = 0.15f)),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.height(36.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SecondaryEmerald)
+                            ) {
+                                Text("Request", fontSize = 12.sp, color = SecondaryEmerald, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                     
@@ -958,7 +1043,7 @@ fun BalanceSummaryCard(
                     }
                 }
                 Button(
-                    onClick = onAddEntryClick,
+                    onClick = { onAddEntryClick() },
                     colors = ButtonDefaults.buttonColors(containerColor = PrimarySteelBlue),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.height(40.dp),

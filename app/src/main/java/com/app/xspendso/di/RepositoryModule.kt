@@ -1,6 +1,8 @@
 package com.app.xspendso.di
 
+import com.app.xspendso.data.PeopleLedgerRepositoryImpl
 import com.app.xspendso.data.TransactionRepositoryImpl
+import com.app.xspendso.domain.PeopleLedgerRepository
 import com.app.xspendso.domain.TransactionRepository
 import dagger.Binds
 import dagger.Module
@@ -17,4 +19,10 @@ abstract class RepositoryModule {
     abstract fun bindTransactionRepository(
         transactionRepositoryImpl: TransactionRepositoryImpl
     ): TransactionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPeopleLedgerRepository(
+        peopleLedgerRepositoryImpl: PeopleLedgerRepositoryImpl
+    ): PeopleLedgerRepository
 }

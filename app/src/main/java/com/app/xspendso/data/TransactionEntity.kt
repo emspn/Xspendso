@@ -21,5 +21,8 @@ data class TransactionEntity(
     val remark: String? = null,
     val enrichedSource: String,     // SMS / EMAIL / USER
     val isRecurring: Boolean = false,
-    val balanceAfter: Double? = null // New: Track balance snapshot if available in SMS
+    val balanceAfter: Double? = null,
+    val updatedAt: Long = System.currentTimeMillis(),
+    val isSplit: Boolean = false,    // New: Track if this transaction was split
+    val originalAmount: Double? = null // New: Store the full original amount before split
 )

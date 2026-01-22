@@ -1,5 +1,6 @@
 package com.app.xspendso.ui.insights
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -65,7 +67,7 @@ fun BudgetManagementScreen(
                             onBack()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = PrimarySteelBlue),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.Save, null, tint = Color.Black, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -78,30 +80,45 @@ fun BudgetManagementScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
             item {
                 Spacer(modifier = Modifier.height(10.dp))
-                Text("Set overall monthly limit", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
-                OutlinedTextField(
-                    value = totalLimit,
-                    onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) totalLimit = it },
-                    label = { Text("Total Budget (₹)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = PrimarySteelBlue,
-                        unfocusedBorderColor = Slate700,
-                        focusedLabelColor = PrimarySteelBlue
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                Surface(
+                    color = AppSurface,
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, GlassWhite.copy(alpha = 0.05f))
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text("Overall Limit", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = TextPrimary)
+                        Text("How much do you want to spend in total this month?", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = totalLimit,
+                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) totalLimit = it },
+                            placeholder = { Text("0.00") },
+                            modifier = Modifier.fillMaxWidth(),
+                            prefix = { Text("₹ ", color = TextSecondary) },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimarySteelBlue,
+                                unfocusedBorderColor = Slate700,
+                                focusedContainerColor = Slate800.copy(alpha = 0.3f),
+                                unfocusedContainerColor = Slate800.copy(alpha = 0.3f)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
             }
 
             item {
-                Divider(color = GlassWhite)
-                Text("Category-wise Targets", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = TextPrimary)
-                Text("Control your spending on specific things", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, null, tint = PrimarySteelBlue, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Category Targets (Optional)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = TextPrimary)
+                }
+                Text("Set specific limits to get alerts when you overspend", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
             }
 
             items(categories) { category ->
@@ -119,26 +136,36 @@ fun BudgetManagementScreen(
 
 @Composable
 fun CategoryBudgetInput(category: String, value: String, onValueChange: (String) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+    Surface(
+        color = AppSurface,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, GlassWhite.copy(alpha = 0.05f)),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(category, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, fontWeight = FontWeight.Medium)
-        }
-        OutlinedTextField(
-            value = value,
-            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) onValueChange(it) },
-            modifier = Modifier.width(140.dp),
-            placeholder = { Text("0") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-            shape = RoundedCornerShape(12.dp),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = PrimarySteelBlue,
-                unfocusedBorderColor = Slate700
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(category, style = MaterialTheme.typography.bodyLarge, color = TextPrimary, fontWeight = FontWeight.Bold)
+            }
+            OutlinedTextField(
+                value = if (value == "0") "" else value,
+                onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) onValueChange(it) },
+                modifier = Modifier.width(120.dp),
+                placeholder = { Text("Optional", fontSize = 12.sp) },
+                prefix = { Text("₹", style = MaterialTheme.typography.labelSmall, color = TextSecondary) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                shape = RoundedCornerShape(12.dp),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = PrimarySteelBlue,
+                    unfocusedBorderColor = Slate700,
+                    focusedContainerColor = Slate800.copy(alpha = 0.2f),
+                    unfocusedContainerColor = Slate800.copy(alpha = 0.2f)
+                )
             )
-        )
+        }
     }
 }

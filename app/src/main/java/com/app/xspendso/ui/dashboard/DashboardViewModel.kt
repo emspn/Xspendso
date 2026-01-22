@@ -2,10 +2,13 @@ package com.app.xspendso.ui.dashboard
 
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.xspendso.data.*
+import com.app.xspendso.domain.DomainError
+import com.app.xspendso.domain.Resource
 import com.app.xspendso.domain.TransactionRepository
 import com.app.xspendso.domain.usecase.*
 import com.app.xspendso.ui.people.PeopleViewModel
@@ -58,6 +61,9 @@ class DashboardViewModel @Inject constructor(
 
     private val _showManualPaymentSheet = MutableStateFlow(false)
     val showManualPaymentSheet: StateFlow<Boolean> = _showManualPaymentSheet.asStateFlow()
+
+    private val _error = MutableSharedFlow<DomainError>()
+    val error: SharedFlow<DomainError> = _error.asSharedFlow()
 
     private data class FilterState(
         val query: String,
@@ -166,11 +172,23 @@ class DashboardViewModel @Inject constructor(
     val currentBudget: StateFlow<BudgetEntity?> = repository.getBudgetForMonth(currentMonthYear)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val budgetStatus: StateFlow<BudgetStatus?> = combine(transactions, currentBudget) { txs, budget ->
+    // Independent flow for Budgeting to prevent it from being affected by UI filters
+    private val currentMonthTransactions = repository.getAllTransactions().map { txs ->
+        val startOfMonth = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        txs.filter { it.timestamp >= startOfMonth }
+    }
+
+    val budgetStatus: StateFlow<BudgetStatus?> = combine(currentMonthTransactions, currentBudget) { txs, budget ->
         if (budget != null) getBudgetingStatusUseCase(txs, budget) else null
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val savingsPrediction: StateFlow<SavingsPrediction?> = combine(transactions, currentBudget) { txs, budget ->
+    val savingsPrediction: StateFlow<SavingsPrediction?> = combine(currentMonthTransactions, currentBudget) { txs, budget ->
         if (budget != null) predictMonthEndSavingsUseCase(txs, budget.totalLimit) else null
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -262,7 +280,11 @@ class DashboardViewModel @Inject constructor(
     fun importTransactions() {
         viewModelScope.launch {
             _isSyncing.value = true
-            syncLedgerUseCase()
+            when (val result = syncLedgerUseCase()) {
+                is Resource.Error -> _error.emit(result.error)
+                is Resource.Success -> { /* Handled by Flow */ }
+                is Resource.Loading -> { /* Handled by _isSyncing */ }
+            }
             _isSyncing.value = false
         }
     }
@@ -272,7 +294,7 @@ class DashboardViewModel @Inject constructor(
             _isSyncing.value = true
             repository.deleteAllUserData()
             prefsManager.lastSmsSyncTimestamp = 0L
-            syncLedgerUseCase()
+            importTransactions()
             _isSyncing.value = false
         }
     }
@@ -295,23 +317,39 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun splitExpenseWithContact(transaction: TransactionEntity, contact: ContactLedger, peopleViewModel: PeopleViewModel) {
+    fun splitExpenseWithMap(transaction: TransactionEntity, splits: Map<ContactLedger, Double>, peopleViewModel: PeopleViewModel) {
         viewModelScope.launch {
-            // Calculate 50% split (standard)
-            val splitAmount = abs(transaction.amount) / 2.0
+            var totalSplitWithOthers = 0.0
             
-            // Add to People Ledger as a Receivable (LENT)
-            peopleViewModel.addTransaction(
-                contactId = contact.contactId,
-                amount = splitAmount,
-                type = LoanType.LENT,
-                remark = "Split: ${transaction.counterparty}",
-                date = transaction.timestamp
-            )
+            // If it was already split, we need to "revert" the old split logic conceptually
+            // However, since we update the amount directly, we use originalAmount if available
+            val baseAbsAmount = abs(transaction.originalAmount ?: transaction.amount)
             
-            // Update original transaction remark to show it was split
+            splits.forEach { (contact, amount) ->
+                if (amount > 0) {
+                    totalSplitWithOthers += amount
+                    peopleViewModel.addTransaction(
+                        contactId = contact.contactId,
+                        amount = amount,
+                        type = LoanType.LENT,
+                        remark = "Split: ${transaction.counterparty}",
+                        date = transaction.timestamp
+                    )
+                }
+            }
+            
+            val myNewAbsAmount = if (baseAbsAmount > totalSplitWithOthers) {
+                baseAbsAmount - totalSplitWithOthers
+            } else 0.0
+            
+            val newSignedAmount = if (transaction.type == "DEBIT") -myNewAbsAmount else myNewAbsAmount
+            
+            val contactNames = splits.keys.joinToString(", ") { it.name }
             val updatedTx = transaction.copy(
-                remark = (transaction.remark?.let { "$it | " } ?: "") + "Split with ${contact.name}"
+                amount = newSignedAmount,
+                isSplit = true,
+                originalAmount = baseAbsAmount,
+                remark = "Split: ₹$totalSplitWithOthers with $contactNames (My share: ₹$myNewAbsAmount)"
             )
             repository.updateTransaction(updatedTx)
         }
@@ -399,8 +437,11 @@ class DashboardViewModel @Inject constructor(
             val txs = transactions.value
             if (txs.isNotEmpty()) {
                 val fileName = "Xpendso_Report_${System.currentTimeMillis()}.pdf"
-                val file = exportReportUseCase.exportToPdf(txs, fileName)
-                file?.let { shareFile(context, it, "application/pdf") }
+                when (val result = exportReportUseCase.exportToPdf(txs, fileName)) {
+                    is Resource.Success -> shareFile(context, result.data, "application/pdf")
+                    is Resource.Error -> _error.emit(result.error)
+                    is Resource.Loading -> {}
+                }
             }
         }
     }
@@ -410,8 +451,11 @@ class DashboardViewModel @Inject constructor(
             val txs = transactions.value
             if (txs.isNotEmpty()) {
                 val fileName = "Xpendso_Report_${System.currentTimeMillis()}.csv"
-                val file = exportReportUseCase.exportToCsv(txs, fileName)
-                file?.let { shareFile(context, it, "text/csv") }
+                when (val result = exportReportUseCase.exportToCsv(txs, fileName)) {
+                    is Resource.Success -> shareFile(context, result.data, "text/csv")
+                    is Resource.Error -> _error.emit(result.error)
+                    is Resource.Loading -> {}
+                }
             }
         }
     }

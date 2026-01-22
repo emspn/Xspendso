@@ -29,4 +29,12 @@ class PrefsManager(context: Context) {
     var userName: String?
         get() = prefs.getString("user_name", "User")
         set(value) = prefs.edit().putString("user_name", value).apply()
+
+    var userEmail: String?
+        get() = prefs.getString("user_email", null)
+        set(value) = prefs.edit().putString("user_email", value).apply()
+        
+    var userPhotoUrl: String?
+        get() = prefs.getString("user_photo_url", null)
+        set(value) = prefs.edit().putString("user_photo_url", value).apply()
 }

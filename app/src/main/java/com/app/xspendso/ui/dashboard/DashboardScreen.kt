@@ -5,18 +5,23 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.app.xspendso.data.TransactionEntity
 import com.app.xspendso.ui.people.PeopleViewModel
 import com.app.xspendso.ui.theme.AppBackground
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -25,7 +30,8 @@ import java.util.Locale
 fun DashboardScreen(
     viewModel: DashboardViewModel,
     peopleViewModel: PeopleViewModel,
-    onSettingsClick: () -> Unit
+    onProfileClick: () -> Unit,
+    onPeopleClick: () -> Unit
 ) {
     var activeTab by remember { mutableStateOf("overview") }
     val transactions by viewModel.transactions.collectAsState()
@@ -37,10 +43,14 @@ fun DashboardScreen(
     val showManualPaymentSheet by viewModel.showManualPaymentSheet.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     
+    val peopleContacts by peopleViewModel.allContacts.collectAsState()
+    
     val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
 
     var selectedTransactionForEdit by remember { mutableStateOf<TransactionEntity?>(null) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
 
     var showDatePicker by remember { mutableStateOf(false) }
     val dateRangePickerState = rememberDateRangePickerState()
@@ -103,14 +113,15 @@ fun DashboardScreen(
                 viewModel.deleteTransaction(selectedTransactionForEdit!!)
                 selectedTransactionForEdit = null
             },
-            onSplit = { contact ->
-                viewModel.splitExpenseWithContact(selectedTransactionForEdit!!, contact, peopleViewModel)
+            onSplit = { splits ->
+                viewModel.splitExpenseWithMap(selectedTransactionForEdit!!, splits, peopleViewModel)
                 selectedTransactionForEdit = null
             }
         )
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().background(AppBackground),
         contentPadding = PaddingValues(bottom = 20.dp)
     ) {
@@ -123,7 +134,7 @@ fun DashboardScreen(
                     isSyncing = isSyncing,
                     timeFilter = timeFilter,
                     currencyFormatter = currencyFormatter,
-                    onSettingsClick = onSettingsClick
+                    onProfileClick = onProfileClick
                 )
             }
         }
@@ -182,6 +193,88 @@ fun DashboardScreen(
         // Part 3: List Content
         when (activeTab) {
             "overview" -> {
+                // 1. People Ledger Section (First)
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "People Ledger",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Button(
+                            onClick = onPeopleClick,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                contentColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("Manage", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                
+                item {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(16.dp),
+                        onClick = onPeopleClick
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            if (peopleContacts.isEmpty()) {
+                                Text(
+                                    text = "No contacts added till now",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            } else {
+                                val recentPeople = peopleContacts.take(3)
+                                recentPeople.forEachIndexed { index, contact ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.People, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(contact.name, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                        Text(
+                                            text = if (contact.netBalance >= 0) "Receivable: ₹${String.format("%.2f", contact.netBalance)}" else "Payable: ₹${String.format("%.2f", Math.abs(contact.netBalance))}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = if (contact.netBalance >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                    if (index < recentPeople.size - 1) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            thickness = 1.dp,
+                                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. Export Transactions Section (Second)
                 item { 
                     Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
                         QuickActions(
@@ -193,16 +286,70 @@ fun DashboardScreen(
                     }
                 }
 
+                // 3. Recent Transactions Section (Third)
                 if (transactions.isEmpty() && !isSyncing) {
                     item { Box(modifier = Modifier.padding(20.dp)) { EmptyState() } }
-                }
-                
-                items(transactions.take(10), key = { it.id }) { transaction ->
-                    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                        TransactionItem(
-                            transaction = transaction,
-                            onLongClick = { selectedTransactionForEdit = transaction }
-                        )
+                } else if (transactions.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Recent Transactions",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Button(
+                                onClick = { 
+                                    activeTab = "transactions" 
+                                    scope.launch {
+                                        listState.animateScrollToItem(1) 
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                    contentColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text("View All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // Combined card for last 5 transactions
+                    item {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                val recentTxs = transactions.take(5)
+                                recentTxs.forEachIndexed { index, transaction ->
+                                    TransactionItem(
+                                        transaction = transaction,
+                                        onLongClick = { selectedTransactionForEdit = transaction }
+                                    )
+                                    if (index < recentTxs.size - 1) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            thickness = 1.dp,
+                                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 
@@ -213,7 +360,7 @@ fun DashboardScreen(
                 }
             }
             "transactions" -> {
-                items(transactions, key = { it.id }) { transaction ->
+                items(transactions, key = { "all_${it.id}" }) { transaction ->
                     Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                         TransactionItem(
                             transaction = transaction,

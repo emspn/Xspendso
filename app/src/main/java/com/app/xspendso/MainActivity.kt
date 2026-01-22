@@ -2,6 +2,7 @@ package com.app.xspendso
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,10 +33,10 @@ import androidx.navigation.compose.rememberNavController
 import com.app.xspendso.auth.AuthManager
 import com.app.xspendso.auth.BiometricAuthManager
 import com.app.xspendso.data.PrefsManager
+import com.app.xspendso.sms.PeopleSyncWorker
 import com.app.xspendso.sms.SyncWorker
 import com.app.xspendso.ui.auth.LoginScreen
 import com.app.xspendso.ui.consent.ConsentScreen
-import com.app.xspendso.ui.dashboard.DashboardHeader
 import com.app.xspendso.ui.dashboard.DashboardScreen
 import com.app.xspendso.ui.dashboard.DashboardViewModel
 import com.app.xspendso.ui.insights.BudgetManagementScreen
@@ -43,14 +44,13 @@ import com.app.xspendso.ui.insights.InsightsScreen
 import com.app.xspendso.ui.navigation.Screen
 import com.app.xspendso.ui.people.PeopleScreen
 import com.app.xspendso.ui.people.PeopleViewModel
+import com.app.xspendso.ui.profile.ProfileScreen
 import com.app.xspendso.ui.rules.RuleManagementScreen
-import com.app.xspendso.ui.settings.SettingsScreen
 import com.app.xspendso.ui.theme.XspendsoTheme
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
-import java.text.NumberFormat
 import java.util.*
 import javax.inject.Inject
 
@@ -82,7 +82,13 @@ class MainActivity : FragmentActivity() {
                     isContactsAuthorized = ContextCompat.checkSelfPermission(
                         this,
                         Manifest.permission.READ_CONTACTS
-                    ) == PackageManager.PERMISSION_GRANTED
+                    ) == PackageManager.PERMISSION_GRANTED,
+                    isNotificationsAuthorized = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        ContextCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+                    } else true
                 )
             }
         }
@@ -96,7 +102,8 @@ fun XpendsoApp(
     prefsManager: PrefsManager,
     biometricAuthManager: BiometricAuthManager,
     isSmsAuthorized: Boolean,
-    isContactsAuthorized: Boolean
+    isContactsAuthorized: Boolean,
+    isNotificationsAuthorized: Boolean
 ) {
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -107,7 +114,6 @@ fun XpendsoApp(
     val peopleViewModel: PeopleViewModel = hiltViewModel()
 
     var isAuthenticated by remember { mutableStateOf(false) }
-    val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale("en", "IN")) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -129,6 +135,7 @@ fun XpendsoApp(
     LaunchedEffect(isSmsAuthorized) {
         if (isSmsAuthorized) {
             SyncWorker.schedulePeriodicSync(context)
+            PeopleSyncWorker.schedulePeriodicSync(context)
         }
     }
     
@@ -146,6 +153,10 @@ fun XpendsoApp(
                 scope.launch {
                     val success = authManager.signInWithGoogle(idToken)
                     if (success) {
+                        // Crucial: Trigger sync immediately after login
+                        PeopleSyncWorker.scheduleSync(context)
+                        PeopleSyncWorker.schedulePeriodicSync(context)
+                        
                         navController.navigate(Screen.Consent.route) {
                             popUpTo(Screen.Login.route) { inclusive = true }
                         }
@@ -179,7 +190,8 @@ fun XpendsoApp(
         topBar = {
             XpendsoTopBar(
                 currentDestination = currentDestination,
-                navController = navController
+                navController = navController,
+                onProfileClick = { navController.navigate(Screen.Profile.route) }
             )
         },
         bottomBar = {
@@ -221,12 +233,14 @@ fun XpendsoApp(
             composable(Screen.Consent.route) {
                 ConsentScreen(
                     onConsentGiven = {
-                        permissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.READ_SMS,
-                                Manifest.permission.READ_CONTACTS
-                            )
+                        val permissions = mutableListOf(
+                            Manifest.permission.READ_SMS,
+                            Manifest.permission.READ_CONTACTS
                         )
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        permissionLauncher.launch(permissions.toTypedArray())
                     }
                 )
             }
@@ -249,7 +263,16 @@ fun XpendsoApp(
                     DashboardScreen(
                         viewModel = dashboardViewModel,
                         peopleViewModel = peopleViewModel,
-                        onSettingsClick = { navController.navigate(Screen.Settings.route) }
+                        onProfileClick = { navController.navigate(Screen.Profile.route) },
+                        onPeopleClick = {
+                            navController.navigate(Screen.People.route) {
+                                popUpTo(navController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
                     )
                 }
             }
@@ -260,7 +283,10 @@ fun XpendsoApp(
                 )
             }
             composable(Screen.People.route) {
-                PeopleScreen(viewModel = peopleViewModel)
+                PeopleScreen(
+                    viewModel = peopleViewModel,
+                    onProfileClick = { navController.navigate(Screen.Profile.route) }
+                )
             }
             composable(Screen.BudgetPlanner.route) {
                 BudgetManagementScreen(
@@ -268,9 +294,13 @@ fun XpendsoApp(
                     onBack = { navController.popBackStack() }
                 )
             }
-            composable(Screen.Settings.route) {
-                SettingsScreen(
+            composable(Screen.CategorizationRules.route) {
+                RuleManagementScreen(viewModel = dashboardViewModel)
+            }
+            composable(Screen.Profile.route) {
+                ProfileScreen(
                     prefsManager = prefsManager,
+                    onBack = { navController.popBackStack() },
                     onSignOut = {
                         authManager.signOut()
                         navController.navigate(Screen.Login.route) {
@@ -279,8 +309,8 @@ fun XpendsoApp(
                     },
                     onDeleteData = {
                         scope.launch {
-                            // Repository should be injected or handled through VM
-                            // For now, keep it simple
+                            // Repo call should be handled via a VM ideally
+                            dashboardViewModel.forceReparseAllData(prefsManager)
                         }
                     },
                     onNavigateToRules = {
@@ -289,12 +319,9 @@ fun XpendsoApp(
                     onForceReparse = {
                         dashboardViewModel.forceReparseAllData(prefsManager)
                         navController.popBackStack()
-                        Toast.makeText(context, "Ledger repair started...", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Reparsing logic started...", Toast.LENGTH_LONG).show()
                     }
                 )
-            }
-            composable(Screen.CategorizationRules.route) {
-                RuleManagementScreen(viewModel = dashboardViewModel)
             }
         }
     }
@@ -304,20 +331,10 @@ fun XpendsoApp(
 @Composable
 fun XpendsoTopBar(
     currentDestination: NavDestination?,
-    navController: androidx.navigation.NavController
+    navController: androidx.navigation.NavController,
+    onProfileClick: () -> Unit
 ) {
     when (currentDestination?.route) {
-        Screen.Settings.route -> {
-            TopAppBar(
-                title = { Text("Settings", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onBackground)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
         Screen.CategorizationRules.route -> {
             TopAppBar(
                 title = { Text("Rules", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
@@ -329,7 +346,6 @@ fun XpendsoTopBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
-        // DashboardHeader moved to DashboardScreen for sticky search effect
     }
 }
 

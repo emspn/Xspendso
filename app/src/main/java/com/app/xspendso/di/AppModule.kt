@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.WorkManager
 import com.app.xspendso.auth.AuthManager
 import com.app.xspendso.auth.BiometricAuthManager
+import com.app.xspendso.data.PrefsManager
 import com.app.xspendso.domain.usecase.*
 import com.app.xspendso.sms.SmsReader
 import dagger.Module
@@ -20,8 +21,11 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAuthManager(@ApplicationContext context: Context): AuthManager {
-        return AuthManager(context)
+    fun provideAuthManager(
+        @ApplicationContext context: Context,
+        prefsManager: PrefsManager
+    ): AuthManager {
+        return AuthManager(context, prefsManager)
     }
 
     @Provides

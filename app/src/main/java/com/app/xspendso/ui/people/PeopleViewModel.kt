@@ -6,12 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.xspendso.data.*
+import com.app.xspendso.domain.PeopleLedgerRepository
+import com.app.xspendso.domain.Resource
+import com.app.xspendso.domain.SyncStatus
 import com.app.xspendso.domain.TransactionRepository
 import com.app.xspendso.sms.ContactsReader
+import com.app.xspendso.sms.PeopleSyncWorker
 import com.app.xspendso.sms.PhoneContact
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -33,7 +36,7 @@ enum class PeopleSortOrder {
 
 @HiltViewModel
 class PeopleViewModel @Inject constructor(
-    private val peopleDao: PeopleDao,
+    private val peopleRepository: PeopleLedgerRepository,
     private val transactionRepository: TransactionRepository,
     private val prefsManager: PrefsManager,
     @ApplicationContext private val context: Context
@@ -53,14 +56,16 @@ class PeopleViewModel @Inject constructor(
     private val _phoneContacts = MutableStateFlow<List<PhoneContact>>(emptyList())
     val phoneContacts: StateFlow<List<PhoneContact>> = _phoneContacts.asStateFlow()
 
-    // Debounced search for better performance on large contact lists
+    val syncStatus: StateFlow<SyncStatus> = peopleRepository.getSyncStatus()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SyncStatus.IDLE)
+
     private val debouncedSearchQuery = _searchQuery
         .debounce(300L)
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     val allContacts: StateFlow<List<ContactLedger>> = combine(
-        peopleDao.getAllContacts(),
+        peopleRepository.getAllContacts(),
         debouncedSearchQuery,
         _sortOrder
     ) { contacts, query, order ->
@@ -77,13 +82,24 @@ class PeopleViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val totalToReceive: StateFlow<Double> = peopleDao.getAllContacts().map { contacts ->
+    val totalToReceive: StateFlow<Double> = peopleRepository.getAllContacts().map { contacts ->
         contacts.filter { it.netBalance > 0 }.sumOf { it.netBalance }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
-    val totalToPay: StateFlow<Double> = peopleDao.getAllContacts().map { contacts ->
+    val totalToPay: StateFlow<Double> = peopleRepository.getAllContacts().map { contacts ->
         contacts.filter { it.netBalance < 0 }.sumOf { abs(it.netBalance) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    init {
+        // Initial sync when VM is created
+        syncWithCloud()
+    }
+
+    fun syncWithCloud() {
+        viewModelScope.launch {
+            peopleRepository.syncWithCloud()
+        }
+    }
 
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
@@ -108,139 +124,78 @@ class PeopleViewModel @Inject constructor(
                 contactsReader.fetchContacts()
             }
             _phoneContacts.value = fetched
-            syncContactDetails(fetched)
-        }
-    }
-
-    private suspend fun syncContactDetails(fetched: List<PhoneContact>) {
-        withContext(Dispatchers.IO) {
-            val stored = peopleDao.getAllContacts().first()
-            stored.forEach { ledger ->
-                val match = fetched.find { it.phone.replace(" ", "") == ledger.phone.replace(" ", "") }
-                if (match != null) {
-                    if (match.name != ledger.name || match.photoUri != ledger.photoUri) {
-                        peopleDao.updateContact(ledger.copy(name = match.name, photoUri = match.photoUri))
-                    }
-                }
-            }
         }
     }
 
     fun addContactFromPhone(name: String, phone: String, photoUri: String?) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val existing = peopleDao.getContactByPhone(phone)
-                if (existing == null) {
-                    peopleDao.insertContact(ContactLedger(name = name, phone = phone, photoUri = photoUri))
-                } else {
-                    if (existing.photoUri != photoUri) {
-                        peopleDao.updateContact(existing.copy(photoUri = photoUri))
-                    }
-                }
-            }
+            peopleRepository.addContact(name, phone, photoUri)
         }
     }
 
     fun addManualContact(name: String, phone: String) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val existing = peopleDao.getContactByPhone(phone)
-                if (existing == null) {
-                    peopleDao.insertContact(ContactLedger(name = name, phone = phone))
-                }
-            }
+            peopleRepository.addContact(name, phone, null)
         }
     }
 
     fun updateContactUpi(contactId: Long, upiId: String) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val contact = peopleDao.getContactById(contactId)
-                if (contact != null) {
-                    peopleDao.updateContact(contact.copy(upiId = upiId.trim()))
-                }
-            }
+            peopleRepository.updateContactUpi(contactId, upiId)
         }
     }
 
     fun updateContactName(contactId: Long, newName: String) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val contact = peopleDao.getContactById(contactId)
-                if (contact != null) {
-                    peopleDao.updateContact(contact.copy(name = newName))
-                }
-            }
+            peopleRepository.updateContactName(contactId, newName)
         }
     }
 
     fun addTransaction(contactId: Long, amount: Double, type: LoanType, remark: String?, date: Long) {
         if (amount <= 0) return
-        
         viewModelScope.launch {
-            val transaction = LoanTransaction(
-                contactId = contactId,
-                amount = String.format("%.2f", amount).toDouble(),
-                type = type,
-                date = date,
-                remark = remark
-            )
-            withContext(Dispatchers.IO) {
-                peopleDao.addLoanTransactionAndUpdateBalance(transaction)
-            }
+            peopleRepository.addLoanTransaction(contactId, amount, type, remark, date)
         }
     }
 
     fun updateTransaction(transaction: LoanTransaction) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                peopleDao.updateLoanTransactionAndUpdateBalance(transaction)
-            }
+            peopleRepository.updateLoanTransaction(transaction)
         }
     }
 
     fun deleteTransaction(transactionId: Long) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                peopleDao.deleteLoanTransactionAndUpdateBalance(transactionId)
-            }
+            peopleRepository.deleteLoanTransaction(transactionId)
         }
     }
 
     fun deleteMultipleTransactions(contactId: Long, transactionIds: List<Long>) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                peopleDao.deleteMultipleTransactionsAndUpdateBalance(contactId, transactionIds)
-            }
+            peopleRepository.deleteMultipleLoanTransactions(contactId, transactionIds)
         }
     }
 
     fun toggleSettlement(transactionId: Long) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                peopleDao.toggleTransactionSettlement(transactionId)
-            }
+            peopleRepository.toggleSettlement(transactionId)
         }
     }
 
     fun settlePartialAmount(contactId: Long, amount: Double, type: LoanType) {
         if (amount <= 0) return
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                peopleDao.settleLoanTransaction(contactId, amount, type)
-            }
+            peopleRepository.settlePartialAmount(contactId, amount, type)
         }
     }
 
     fun getTransactionsForContact(contactId: Long): Flow<List<LoanTransaction>> {
-        return peopleDao.getTransactionsByContactId(contactId)
+        return peopleRepository.getTransactionsForContact(contactId)
     }
 
     fun deleteContact(contact: ContactLedger) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                peopleDao.deleteContact(contact)
-            }
+            peopleRepository.deleteContact(contact)
         }
     }
 
@@ -261,7 +216,6 @@ class PeopleViewModel @Inject constructor(
                 return
             }
 
-            // AUTO-COPY: Fallback for security warnings
             copyToClipboard(recipientUpi)
 
             val uriString = "upi://pay?pa=$recipientUpi&pn=${Uri.encode(contact.name)}&am=${String.format(Locale.US, "%.2f", amount)}&cu=INR"
@@ -372,7 +326,6 @@ class PeopleViewModel @Inject constructor(
                 
                 try {
                     FileOutputStream(file).use { it.write(content.toByteArray()) }
-                    shareFile(file)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -380,22 +333,10 @@ class PeopleViewModel @Inject constructor(
         }
     }
 
-    private fun shareFile(file: File) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/csv"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }
-        val shareIntent = Intent.createChooser(intent, "Share Ledger Report")
-        shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(shareIntent)
-    }
-
     fun scanAndImportP2PTransactions(contact: ContactLedger) {
         viewModelScope.launch {
             val allTransactions = transactionRepository.getAllTransactions().first()
-            val existingLoanTxs = peopleDao.getTransactionsByContactId(contact.contactId).first()
+            val existingLoanTxs = peopleRepository.getTransactionsForContact(contact.contactId).first()
             
             withContext(Dispatchers.IO) {
                 allTransactions.forEach { tx ->
@@ -407,14 +348,12 @@ class PeopleViewModel @Inject constructor(
                         
                         if (!alreadyImported) {
                             val type = if (tx.type == "DEBIT") LoanType.BORROWED else LoanType.LENT
-                            peopleDao.addLoanTransactionAndUpdateBalance(
-                                LoanTransaction(
-                                    contactId = contact.contactId,
-                                    amount = tx.amount,
-                                    type = type,
-                                    date = tx.timestamp,
-                                    remark = "Auto-imported: ${tx.remark ?: tx.counterparty}"
-                                )
+                            peopleRepository.addLoanTransaction(
+                                contactId = contact.contactId,
+                                amount = tx.amount,
+                                type = type,
+                                date = tx.timestamp,
+                                remark = "Auto-imported: ${tx.remark ?: tx.counterparty}"
                             )
                         }
                     }

@@ -1,9 +1,11 @@
 package com.app.xspendso.sms
 
 import android.content.Context
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.app.xspendso.data.PrefsManager
+import com.app.xspendso.domain.Resource
 import com.app.xspendso.domain.usecase.SyncLedgerUseCase
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -18,11 +20,21 @@ class SyncWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        return try {
-            syncLedgerUseCase()
-            Result.success()
-        } catch (e: Exception) {
-            Result.retry()
+        return when (val result = syncLedgerUseCase()) {
+            is Resource.Success -> {
+                Log.d("SyncWorker", "Sync successful: ${result.data.newTransactionsCount} new transactions")
+                Result.success()
+            }
+            is Resource.Error -> {
+                Log.e("SyncWorker", "Sync failed: ${result.error.message}")
+                // Retry for network or database errors, but not for permission errors
+                if (result.error is com.app.xspendso.domain.DomainError.SyncError.SmsReadPermissionDenied) {
+                    Result.failure()
+                } else {
+                    Result.retry()
+                }
+            }
+            is Resource.Loading -> Result.retry()
         }
     }
 

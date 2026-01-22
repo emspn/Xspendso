@@ -31,7 +31,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.xspendso.data.ContactLedger
+import com.app.xspendso.data.LoanType
 import com.app.xspendso.data.TransactionEntity
+import com.app.xspendso.ui.people.ContactPickerBottomSheet
+import com.app.xspendso.ui.people.ManualAddContactDialog
 import com.app.xspendso.ui.people.PeopleViewModel
 import com.app.xspendso.ui.theme.ColorError
 import com.app.xspendso.ui.theme.SecondaryEmerald
@@ -205,21 +208,45 @@ fun TransactionItem(transaction: TransactionEntity, onLongClick: () -> Unit) {
                         Icon(Icons.Default.Autorenew, contentDescription = "Recurring", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
                     }
                 }
-                val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(transaction.timestamp))
-                Text(text = time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(horizontalAlignment = Alignment.End) {
+                    val date = SimpleDateFormat("dd MMM", Locale.getDefault()).format(Date(transaction.timestamp))
+                    val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(transaction.timestamp))
+                    Text(text = date, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(text = time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                 Text(text = transaction.accountSource, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(text = transaction.category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(text = transaction.category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                    if (transaction.isSplit) {
+                        Text(
+                            text = "Splitted", 
+                            style = MaterialTheme.typography.labelSmall, 
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 9.sp
+                        )
+                    }
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    text = "₹${String.format(Locale.getDefault(), "%.2f", abs(transaction.amount))}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = if (transaction.amount > 0) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface
-                )
+                Column {
+                    Text(
+                        text = "₹${String.format(Locale.getDefault(), "%.2f", abs(transaction.amount))}",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (transaction.amount > 0) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface
+                    )
+                    if (transaction.isSplit && transaction.originalAmount != null) {
+                        Text(
+                            text = "Original: ₹${String.format("%.2f", transaction.originalAmount)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 if (!transaction.remark.isNullOrBlank()) {
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
@@ -307,7 +334,7 @@ fun TransactionEditSheet(
     onDismiss: () -> Unit,
     onSave: (String, String, String, String) -> Unit,
     onDelete: () -> Unit,
-    onSplit: (ContactLedger) -> Unit
+    onSplit: (Map<ContactLedger, Double>) -> Unit
 ) {
     var counterparty by remember { mutableStateOf(transaction.counterparty) }
     var remark by remember { mutableStateOf(transaction.remark ?: "") }
@@ -316,33 +343,140 @@ fun TransactionEditSheet(
     var customCategory by remember { mutableStateOf("") }
     var showCustomCategoryInput by remember { mutableStateOf(false) }
     var showSplitPicker by remember { mutableStateOf(false) }
+    var showManualAddContact by remember { mutableStateOf(false) }
+    var showContactPicker by remember { mutableStateOf(false) }
 
     val allCategories = remember { (DEFAULT_CATEGORIES + "Custom +").distinct() }
     val contacts by peopleViewModel.allContacts.collectAsState()
+    
+    val selectedContactsWithAmounts = remember { mutableStateMapOf<ContactLedger, String>() }
+    var isEqualSplit by remember { mutableStateOf(true) }
+    
+    // IMPORTANT: Fix base amount logic for editing splits
+    val baseAmount = remember { transaction.originalAmount ?: abs(transaction.amount) }
+
+    if (showManualAddContact) {
+        ManualAddContactDialog(
+            onDismiss = { showManualAddContact = false },
+            onConfirm = { name, phone ->
+                peopleViewModel.addManualContact(name, phone)
+                showManualAddContact = false
+            }
+        )
+    }
+
+    if (showContactPicker) {
+        ContactPickerBottomSheet(
+            viewModel = peopleViewModel,
+            onDismiss = { showContactPicker = false },
+            onContactSelected = { phoneContact ->
+                peopleViewModel.addContactFromPhone(phoneContact.name, phoneContact.phone, phoneContact.photoUri)
+                showContactPicker = false
+            },
+            onAddManually = {
+                showContactPicker = false
+                showManualAddContact = true
+            }
+        )
+    }
 
     if (showSplitPicker) {
         ModalBottomSheet(onDismissRequest = { showSplitPicker = false }) {
-            Column(modifier = Modifier.fillMaxWidth().padding(20.dp).padding(bottom = 32.dp)) {
-                Text("Select person to split with", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text(
+                            if (transaction.isSplit) "Edit Split Transaction" else "Split Transaction", 
+                            style = MaterialTheme.typography.titleLarge, 
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            "Total: ₹${String.format("%.2f", baseAmount)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    TextButton(onClick = { showContactPicker = true }) {
+                        Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Add New")
+                    }
+                }
+                
                 Spacer(modifier = Modifier.height(16.dp))
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = isEqualSplit, onCheckedChange = { isEqualSplit = it })
+                    Text("Split Equally", style = MaterialTheme.typography.bodyMedium)
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                if (isEqualSplit && selectedContactsWithAmounts.isNotEmpty()) {
+                    val perPerson = baseAmount / (selectedContactsWithAmounts.size + 1)
+                    Text("Each share (including you): ₹${String.format("%.2f", perPerson)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                     items(contacts) { contact ->
+                        val isSelected = selectedContactsWithAmounts.containsKey(contact)
                         Surface(
                             onClick = { 
-                                onSplit(contact)
-                                showSplitPicker = false
+                                if (isSelected) selectedContactsWithAmounts.remove(contact)
+                                else selectedContactsWithAmounts[contact] = ""
                             },
                             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
                         ) {
                             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Text(contact.name, style = MaterialTheme.typography.bodyLarge)
+                                Checkbox(checked = isSelected, onCheckedChange = null)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(contact.name, style = MaterialTheme.typography.bodyLarge)
+                                    if (isSelected && !isEqualSplit) {
+                                        OutlinedTextField(
+                                            value = selectedContactsWithAmounts[contact] ?: "",
+                                            onValueChange = { if (it.all { c -> c.isDigit() || c == '.' }) selectedContactsWithAmounts[contact] = it },
+                                            placeholder = { Text("Amount") },
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                            shape = RoundedCornerShape(8.dp),
+                                            trailingIcon = { Text("₹", style = MaterialTheme.typography.bodySmall) }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+                }
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = {
+                        val finalSplits = mutableMapOf<ContactLedger, Double>()
+                        if (isEqualSplit) {
+                            val perPerson = baseAmount / (selectedContactsWithAmounts.size + 1)
+                            selectedContactsWithAmounts.keys.forEach { finalSplits[it] = perPerson }
+                        } else {
+                            selectedContactsWithAmounts.forEach { (contact, amountStr) ->
+                                finalSplits[contact] = amountStr.toDoubleOrNull() ?: 0.0
+                            }
+                        }
+                        
+                        if (finalSplits.isNotEmpty()) {
+                            onSplit(finalSplits)
+                            showSplitPicker = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = selectedContactsWithAmounts.isNotEmpty() && (isEqualSplit || selectedContactsWithAmounts.values.all { (it.toDoubleOrNull() ?: 0.0) > 0 })
+                ) {
+                    Text(if (transaction.isSplit) "Update Split" else "Confirm Split")
                 }
             }
         }
@@ -351,10 +485,17 @@ fun TransactionEditSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface, dragHandle = { BottomSheetDefaults.DragHandle() }) {
         Column(modifier = Modifier.padding(horizontal = 20.dp).padding(bottom = 32.dp).verticalScroll(rememberScrollState())) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Edit Details", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Row {
-                    IconButton(onClick = { showSplitPicker = true }) {
-                        Icon(Icons.Default.CallSplit, contentDescription = "Split", tint = MaterialTheme.colorScheme.primary)
+                Column {
+                    Text("Edit Details", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    if (transaction.isSplit) {
+                        Text("Already Splitted", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { showSplitPicker = true }) {
+                        Icon(Icons.Default.CallSplit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (transaction.isSplit) "Edit Split" else "Split Transaction", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                     IconButton(onClick = onDelete) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
@@ -425,48 +566,58 @@ fun QuickActions(
         label = "rotation"
     )
 
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(
-            onClick = onExportPdf,
-            modifier = Modifier.weight(1f).height(54.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = ColorError.copy(alpha = 0.15f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, ColorError.copy(alpha = 0.3f))
-        ) {
-            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp), tint = ColorError)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Export PDF", style = MaterialTheme.typography.labelLarge, color = ColorError, fontWeight = FontWeight.Bold)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = "Export Transactions",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 12.dp)
+        )
+        
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(
+                onClick = onExportPdf,
+                modifier = Modifier.weight(1f).height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = ColorError.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, ColorError.copy(alpha = 0.3f))
+            ) {
+                Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp), tint = ColorError)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export PDF", style = MaterialTheme.typography.labelLarge, color = ColorError, fontWeight = FontWeight.Bold)
+                }
             }
-        }
 
-        Surface(
-            onClick = onExportCsv,
-            modifier = Modifier.weight(1f).height(54.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = SecondaryEmerald.copy(alpha = 0.15f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, SecondaryEmerald.copy(alpha = 0.3f))
-        ) {
-            Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(18.dp), tint = SecondaryEmerald)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Export CSV", style = MaterialTheme.typography.labelLarge, color = SecondaryEmerald, fontWeight = FontWeight.Bold)
+            Surface(
+                onClick = onExportCsv,
+                modifier = Modifier.weight(1f).height(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = SecondaryEmerald.copy(alpha = 0.15f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, SecondaryEmerald.copy(alpha = 0.3f))
+            ) {
+                Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(18.dp), tint = SecondaryEmerald)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export CSV", style = MaterialTheme.typography.labelLarge, color = SecondaryEmerald, fontWeight = FontWeight.Bold)
+                }
             }
-        }
 
-        FilledIconButton(
-            onClick = onSync,
-            modifier = Modifier.size(54.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), contentColor = MaterialTheme.colorScheme.primary)
-        ) {
-            Icon(
-                Icons.Default.Sync,
-                contentDescription = "Sync",
-                modifier = Modifier
-                    .size(22.dp)
-                    .rotate(if (isSyncing) rotation else 0f)
-            )
+            FilledIconButton(
+                onClick = onSync,
+                modifier = Modifier.size(54.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), contentColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(
+                    Icons.Default.Sync,
+                    contentDescription = "Sync",
+                    modifier = Modifier
+                        .size(22.dp)
+                        .rotate(if (isSyncing) rotation else 0f)
+                )
+            }
         }
     }
 }
