@@ -115,6 +115,15 @@ fun XpendsoApp(
 
     var isAuthenticated by remember { mutableStateOf(false) }
 
+    // Automated sync trigger on app launch / entry
+    LaunchedEffect(Unit) {
+        if (authManager.isUserLoggedIn()) {
+            PeopleSyncWorker.scheduleSync(context)
+            PeopleSyncWorker.schedulePeriodicSync(context)
+            SyncWorker.schedulePeriodicSync(context)
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -153,7 +162,7 @@ fun XpendsoApp(
                 scope.launch {
                     val success = authManager.signInWithGoogle(idToken)
                     if (success) {
-                        // Crucial: Trigger sync immediately after login
+                        // Immediate Sync Trigger after successful login
                         PeopleSyncWorker.scheduleSync(context)
                         PeopleSyncWorker.schedulePeriodicSync(context)
                         

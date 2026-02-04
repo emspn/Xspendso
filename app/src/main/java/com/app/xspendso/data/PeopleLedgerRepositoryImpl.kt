@@ -40,6 +40,7 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
         handleLocalOp {
             val contact = ContactLedger(name = name, phone = phone, photoUri = photoUri)
             peopleDao.insertContact(contact)
+            pushContactToCloud(contact)
             triggerBackgroundSync()
         }
 
@@ -47,7 +48,9 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
         handleLocalOp {
             val contact = peopleDao.getContactById(contactId)
             if (contact != null) {
-                peopleDao.updateContact(contact.copy(upiId = upiId.trim(), lastUpdated = System.currentTimeMillis()))
+                val updated = contact.copy(upiId = upiId.trim(), lastUpdated = System.currentTimeMillis())
+                peopleDao.updateContact(updated)
+                pushContactToCloud(updated)
                 triggerBackgroundSync()
             }
         }
@@ -56,7 +59,9 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
         handleLocalOp {
             val contact = peopleDao.getContactById(contactId)
             if (contact != null) {
-                peopleDao.updateContact(contact.copy(name = newName, lastUpdated = System.currentTimeMillis()))
+                val updated = contact.copy(name = newName, lastUpdated = System.currentTimeMillis())
+                peopleDao.updateContact(updated)
+                pushContactToCloud(updated)
                 triggerBackgroundSync()
             }
         }
@@ -85,12 +90,15 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
             lastUpdated = System.currentTimeMillis()
         )
         peopleDao.addLoanTransactionAndUpdateBalance(transaction)
+        pushLoanToCloud(transaction)
         triggerBackgroundSync()
     }
 
     override suspend fun updateLoanTransaction(transaction: LoanTransaction): Resource<Unit> =
         handleLocalOp {
-            peopleDao.updateLoanTransactionAndUpdateBalance(transaction.copy(lastUpdated = System.currentTimeMillis()))
+            val updated = transaction.copy(lastUpdated = System.currentTimeMillis())
+            peopleDao.updateLoanTransactionAndUpdateBalance(updated)
+            pushLoanToCloud(updated)
             triggerBackgroundSync()
         }
 
@@ -113,6 +121,10 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
     override suspend fun toggleSettlement(transactionId: Long): Resource<Unit> =
         handleLocalOp {
             peopleDao.toggleTransactionSettlement(transactionId)
+            val updated = peopleDao.getTransactionById(transactionId)
+            if (updated != null) {
+                pushLoanToCloud(updated)
+            }
             triggerBackgroundSync()
         }
 
@@ -122,7 +134,32 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
         type: LoanType
     ): Resource<Unit> = handleLocalOp {
         peopleDao.settleLoanTransaction(contactId, amount, type)
+        // Since this creates multiple internal updates, trigger a full background sync to reconcile
         triggerBackgroundSync()
+    }
+
+    private suspend fun pushContactToCloud(contact: ContactLedger) {
+        val userId = auth.currentUser?.uid ?: return
+        try {
+            firestore.collection("users").document(userId)
+                .collection("people").document(contact.uuid)
+                .set(contact.toFirestoreMap(), SetOptions.merge())
+        } catch (e: Exception) {
+            Log.e("PeopleLedgerRepo", "Immediate contact push failed", e)
+        }
+    }
+
+    private suspend fun pushLoanToCloud(loan: LoanTransaction) {
+        val userId = auth.currentUser?.uid ?: return
+        if (loan.contactUuid.isBlank()) return
+        try {
+            firestore.collection("users").document(userId)
+                .collection("people").document(loan.contactUuid)
+                .collection("loans").document(loan.uuid)
+                .set(loan.toFirestoreMap(), SetOptions.merge())
+        } catch (e: Exception) {
+            Log.e("PeopleLedgerRepo", "Immediate loan push failed", e)
+        }
     }
 
     private suspend fun handleLocalOp(op: suspend () -> Unit): Resource<Unit> = withContext(Dispatchers.IO) {
@@ -318,15 +355,23 @@ class PeopleLedgerRepositoryImpl @Inject constructor(
 
     private suspend fun deleteContactFromCloud(uuid: String) {
         val userId = auth.currentUser?.uid ?: return
-        firestore.collection("users").document(userId)
-            .collection("people").document(uuid).delete().await()
+        try {
+            firestore.collection("users").document(userId)
+                .collection("people").document(uuid).delete().await()
+        } catch (e: Exception) {
+            Log.e("PeopleLedgerRepo", "Immediate cloud delete failed", e)
+        }
     }
 
     private suspend fun deleteLoanFromCloud(contactUuid: String, loanUuid: String) {
         val userId = auth.currentUser?.uid ?: return
-        firestore.collection("users").document(userId)
-            .collection("people").document(contactUuid)
-            .collection("loans").document(loanUuid).delete().await()
+        try {
+            firestore.collection("users").document(userId)
+                .collection("people").document(contactUuid)
+                .collection("loans").document(loanUuid).delete().await()
+        } catch (e: Exception) {
+            Log.e("PeopleLedgerRepo", "Immediate cloud loan delete failed", e)
+        }
     }
 
     private fun ContactLedger.toFirestoreMap() = mapOf(
